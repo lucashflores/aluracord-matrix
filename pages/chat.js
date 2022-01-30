@@ -1,19 +1,89 @@
 import { Box, Text, TextField, Image, Button } from '@skynexui/components';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import appConfig from '../config.json';
+import { createClient } from '@supabase/supabase-js';
+import { useRouter } from "next/router"
+import { ButtonSendSticker } from '../src/components/ButtonSendSticker';
+
+
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlhdCI6MTY0MzMwMTM3NCwiZXhwIjoxOTU4ODc3Mzc0fQ.fsypNIXgb9gwH2w8DGj5q1Jz4XPkOEOrsFRsUKD_t6A'
+const SUPABASE_URL = 'https://bzgfyebzyyhlqqsonjxh.supabase.co'
+const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+function escutaMensagemEmTempoReal(adcionaMensagem){
+    return supabaseClient
+        .from('mensagens')
+        .on('INSERT', ( respostaLive  ) =>{
+            adcionaMensagem(respostaLive.new);
+        })
+        .subscribe();
+}
+
 
 export default function ChatPage() {
     const [textoAtual, setTextoAtual] = useState('')
     const [listaDeMensagens, setListaDeMensagens] = useState([])
+    const [hidden, setHidden] = useState(false)
 
-    function handleNovaMensagem(novaMensagem) {
-        const mensagem = {
-            id: listaDeMensagens.length,
-            texto: novaMensagem,
-            de: 'lucashflores',
+    const roteamento = useRouter()
+    const usuarioLogado = roteamento.query.username
+
+    const Loading = ({isHidden}) => {
+        if (isHidden) {
+            return ''
         }
-        setListaDeMensagens([mensagem, ...listaDeMensagens])
-        setTextoAtual('')
+        return (
+            <Text variant='heading5'>
+                Carregando...
+            </Text>
+        )
+    }
+
+    React.useEffect(()=>{
+        supabaseClient
+            .from('mensagens')
+            .select('*')
+            .order('id', { ascending: false})
+            .then(( {data})=>{
+                console.log('Dados da consulta', data);
+                setListaDeMensagens(data);
+            });
+            setHidden(true)
+            escutaMensagemEmTempoReal((novaMensagem)=>{
+                console.log('Nova Mensagem', novaMensagem);
+                if(usuarioLogado != novaMensagem.de){
+                    let audio = new Audio(appConfig.soundMiranha);
+                    audio.play();
+                }
+                setListaDeMensagens((valorAtualDaLista)=>{
+                    return[
+                        novaMensagem,
+                        ...valorAtualDaLista,
+                    ]
+                });
+            });
+    }, []);
+    
+    function handleNovaMensagem(novaMensagem) {
+        const mensagemEnviada = {
+            de: usuarioLogado,
+            texto: novaMensagem
+        }
+        
+        supabaseClient
+            .from('mensagens')
+            .insert([
+                mensagemEnviada
+            ])
+            .then(( {data})=>{
+                console.log('Criando Mensagem: ', data);
+                // setListaMensagens([
+                //     data[0],
+                //     ...listaDeMensagens,
+                // ]);
+            })     
+
+        setTextoAtual('');
     }
 
     function handleDeletarMensagem(idMensagem) {
@@ -21,6 +91,7 @@ export default function ChatPage() {
     }
 
     return (
+        
         <Box
             styleSheet={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -28,8 +99,9 @@ export default function ChatPage() {
                 backgroundImage: `url(https://virtualbackgrounds.site/wp-content/uploads/2020/08/the-matrix-digital-rain.jpg)`,
                 backgroundRepeat: 'no-repeat', backgroundSize: 'cover', backgroundBlendMode: 'multiply',
                 color: appConfig.theme.colors.neutrals['000']
-            }}
+            }} 
         >
+            
             <Box
                 styleSheet={{
                     display: 'flex',
@@ -57,7 +129,7 @@ export default function ChatPage() {
                         padding: '16px',
                     }}
                 >
-
+                    <Loading isHidden={hidden} />
                     <MessageList mensagens={listaDeMensagens} deletarMensagem={handleDeletarMensagem} />
 
                     <Box
@@ -94,6 +166,7 @@ export default function ChatPage() {
                                 color: appConfig.theme.colors.neutrals[200],
                             }}
                         />
+                        <ButtonSendSticker onStickerClick={sticker => handleNovaMensagem(':sticker:' + sticker)} />
                         <Button
                             type='button'
                             label='Enviar'
@@ -174,7 +247,7 @@ function MessageList({ mensagens, deletarMensagem }) {
                                     display: 'inline-block',
                                     marginRight: '8px',
                                 }}
-                                src={`https://github.com/lucashflores.png`}
+                                src={`https://github.com/${mensagem.de}.png`}
                             />
                             <Text tag="strong">
                                 {mensagem.de}
@@ -194,11 +267,12 @@ function MessageList({ mensagens, deletarMensagem }) {
                                 iconName='times'
                                 onClick={event => deletarMensagem(mensagem.id)}
                                 style={{position: 'absolute', right: 32, backgroundColor: 'transparent', border: 'none', outline: 'noneoutline'}}
-                            
                             />
                         </Box>
-                        {mensagem.texto}
-                        
+                        {mensagem.texto.startsWith(':sticker:') ?
+                        (<Image src={mensagem.texto.replace(':sticker:', '')} />):
+                        mensagem.texto}
+                
                     </Text>
                     
                 )
